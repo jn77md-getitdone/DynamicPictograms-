@@ -32,6 +32,17 @@ The app turns it into a list of pictograms in the right order. The person using 
 
 Claude draws pictograms as vector graphics (SVG), not photos or paintings. That suits simple, clear pictograms, and they stay sharp at any size. Each plan uses one request to make the list, plus one request per *new* activity to draw 3 pictures. Activities that are settled, or drawn before, cost nothing. You can pick the model in Settings: Opus 5.5 (best drawings), Sonnet 5.5 (faster) or Haiku 5.5 (cheapest).
 
+## Two ways to open it
+
+- **Inside Claude (easiest):** the app is published as a private Claude artifact. There, the AI (questions, plans, drawings, photo → cartoon) runs on your own Claude login, with no API key. Claude asks once for permission. Inside Claude the browser blocks the microphone, so you dictate with the 🎤 key on the iPad/iPhone keyboard. Rebuild the artifact page with `node scripts/build-artifact.mjs`.
+- **As a normal web page / home-screen app** (GitHub Pages or any HTTPS host): works offline, and uses built-in dictation where the browser supports it. The AI needs an Anthropic API key in Settings.
+
+## How a plan is made
+
+1. **Talk.** Say (or type) what will happen. Pictograms appear live as you speak ("I hear: …").
+2. **Questions.** The AI asks up to 4 short clarifying questions, but only where the answer changes the pictures or the order (what's in the lunch box, how you travel, who is there). Tap an answer or type your own. You can skip this step.
+3. **Pictograms.** You get the steps in order, each with picture suggestions. You can move steps, change words, or take a 📷 photo of the real thing and turn it into a cartoon pictogram. Then **Use for today** or **Save as routine**.
+
 ## Running it
 
 There is no build step. It is plain HTML, CSS and JavaScript modules.

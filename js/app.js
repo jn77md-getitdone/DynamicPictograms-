@@ -54,6 +54,35 @@ function cloneSteps(steps) {
   return steps.map(s => ({ ...JSON.parse(JSON.stringify(s)), id: newId(), done: false }));
 }
 
+
+// In-app dialogs. Browser pop-ups (confirm/prompt) are blocked inside Claude, and these
+// are bigger and easier to tap on a tablet anyway.
+function askDialog({ title, message = '', input = null, ok = 'OK', cancel = 'Cancel', danger = false }) {
+  return new Promise(resolve => {
+    const dlg = $('#ask');
+    dlg.innerHTML = `
+      <form method="dialog" class="sheet ask-sheet">
+        <h2>${esc(title)}</h2>
+        ${message ? `<p>${esc(message)}</p>` : ''}
+        ${input !== null ? `<input id="askInput" value="${esc(input)}" autocomplete="off">` : ''}
+        <div class="row-actions">
+          <button class="btn big" value="cancel" formnovalidate>${esc(cancel)}</button>
+          <button class="btn big ${danger ? 'danger' : 'primary'}" value="ok">${esc(ok)}</button>
+        </div>
+      </form>`;
+    dlg.onclose = () => {
+      dlg.onclose = null;
+      if (dlg.returnValue !== 'ok') return resolve(null);
+      resolve(input !== null ? ($('#askInput', dlg).value.trim() || null) : true);
+    };
+    dlg.returnValue = '';
+    dlg.showModal();
+    if (input !== null) setTimeout(() => { const i = $('#askInput', dlg); i.focus(); i.select(); }, 50);
+  });
+}
+const askConfirm = (title, ok = 'Yes') => askDialog({ title, ok, danger: /delete|clear|forget/i.test(title) });
+const askText = (title, value = '') => askDialog({ title, input: value || '', ok: 'Save' });
+
 // ---------- navigation ----------
 function go(to) {
   route = to;
@@ -742,7 +771,7 @@ function openPictoEditor(p) {
     } else if (act === 'hear') {
       say(draft.speech || draft.label);
     } else if (act === 'delete') {
-      if (!confirm(`Delete “${draft.label}”?`)) return;
+      if (!(await askConfirm(`Delete “${draft.label}”?`))) return;
       update(st => { st.customPictos = st.customPictos.filter(c => c.id !== p.id); });
       dlg.close(); renderPictos();
     }
@@ -1015,7 +1044,7 @@ async function addStep() {
   let step;
   if (res.picto) step = stepFromPicto(res.picto);
   else {
-    const label = prompt('What should the card say?', '') || 'Activity';
+    const label = await askText('What should the card say?', '') || 'Activity';
     step = stepFromPicto(null, { label, speech: label, image: res.image, needsPicture: false });
   }
   update(st => { st.draft.push(step); });
@@ -1094,9 +1123,9 @@ function renderSettings() {
       </fieldset>
 
       <fieldset><legend>Backup</legend>
-        <p class="hint">Everything is saved on this device only. Export a backup to move it to another phone or tablet.</p>
+        <p class="hint">Everything is saved on this device only.${aiStatus.inClaude ? ' (Inside Claude, it is saved in this browser for this page.)' : ' Export a backup to move it to another phone or tablet.'}</p>
         <div class="row-actions">
-          <button class="btn" data-action="export">⬇️ Export backup</button>
+          ${aiStatus.inClaude ? '' : '<button class="btn" data-action="export">⬇️ Export backup</button>'}
           <label class="btn">⬆️ Import backup<input type="file" accept="application/json,.json" id="importFile" hidden></label>
           <button class="btn danger-text" data-action="resetAll">Delete everything</button>
         </div>
@@ -1169,7 +1198,7 @@ document.addEventListener('click', async e => {
       update(s => { s.draft = cloneSteps(s.today.steps); });
       phase = 'edit'; go('plan'); loadSuggestions(S().draft, { autoDraw: false }); break;
     case 'resetToday':
-      if (!confirm('Mark every step as not done?')) return;
+      if (!(await askConfirm('Mark every step as not done?'))) return;
       update(s => { s.today.steps.forEach(x => { x.done = false; }); });
       render(); break;
 
@@ -1182,7 +1211,7 @@ document.addEventListener('click', async e => {
     case 'backToEdit': if (stopDictation) stopDictation(); phase = 'edit'; talkMode = 'replace'; renderPlan(); break;
     case 'talkMore': phase = 'talk'; talkMode = 'append'; update(s => { s.draftText = ''; }); renderPlan(); break;
     case 'newPlan':
-      if (st.draft.length && !confirm('Start a new plan? The current list will be cleared.')) return;
+      if (st.draft.length && !(await askConfirm('Start a new plan? The current list will be cleared.'))) return;
       sug.clear(); update(s => { s.draft = []; s.draftText = ''; }); phase = 'talk'; talkMode = 'replace'; renderPlan(); break;
     case 'answer': {
       const q = questions?.[Number(el.dataset.q)];
@@ -1210,17 +1239,17 @@ document.addEventListener('click', async e => {
     case 'remove': sug.delete(id); update(s => { s.draft = s.draft.filter(x => x.id !== id); }); renderPlan(); break;
     case 'addStep': addStep(); break;
     case 'clearDraft':
-      if (!confirm('Clear the whole list?')) return;
+      if (!(await askConfirm('Clear the whole list?'))) return;
       sug.clear(); update(s => { s.draft = []; s.draftText = ''; }); renderPlan(); break;
     case 'useToday': {
-      if (st.draft.some(s => s.needsPicture) && !confirm('Some steps have no picture yet (⭐). Use the plan anyway?')) return;
+      if (st.draft.some(s => s.needsPicture) && !(await askConfirm('Some steps have no picture yet (⭐). Use the plan anyway?'))) return;
       learnFromSteps(st.draft);
       update(s => { s.today = { date: todayKey(), steps: cloneSteps(s.draft) }; });
       toast('Today’s plan is ready.');
       go('today'); break;
     }
     case 'saveRoutine': {
-      const name = prompt('Name for this routine (e.g. “School morning”)', '');
+      const name = await askText('Name for this routine (e.g. “School morning”)', '');
       if (!name) return;
       update(s => { s.routines.unshift({ id: newId('r'), name: name.trim(), steps: cloneSteps(s.draft) }); });
       toast(`Saved “${name}”.`); break;
@@ -1228,13 +1257,13 @@ document.addEventListener('click', async e => {
 
     case 'routineToday': {
       const r = st.routines.find(x => x.id === id);
-      if (st.today?.steps.length && !confirm('Replace today’s plan with this routine?')) return;
+      if (st.today?.steps.length && !(await askConfirm('Replace today’s plan with this routine?'))) return;
       update(s => { s.today = { date: todayKey(), steps: cloneSteps(r.steps) }; });
       go('today'); break;
     }
     case 'routineEdit': {
       const r = st.routines.find(x => x.id === id);
-      if (st.draft.length && !confirm('Replace the list you are editing in Plan?')) return;
+      if (st.draft.length && !(await askConfirm('Replace the list you are editing in Plan?'))) return;
       sug.clear();
       update(s => { s.draft = cloneSteps(r.steps); });
       phase = 'edit'; go('plan'); loadSuggestions(S().draft, { autoDraw: false });
@@ -1243,13 +1272,13 @@ document.addEventListener('click', async e => {
     }
     case 'routineRename': {
       const r = st.routines.find(x => x.id === id);
-      const name = prompt('New name', r.name);
+      const name = await askText('New name', r.name);
       if (name) { update(() => { r.name = name.trim(); }); renderRoutines(); }
       break;
     }
     case 'routineDelete': {
       const r = st.routines.find(x => x.id === id);
-      if (!confirm(`Delete “${r.name}”?`)) return;
+      if (!(await askConfirm(`Delete “${r.name}”?`))) return;
       update(s => { s.routines = s.routines.filter(x => x.id !== id); }); renderRoutines(); break;
     }
 
@@ -1274,10 +1303,10 @@ document.addEventListener('click', async e => {
       break;
     }
     case 'forgetLearned':
-      if (!confirm('Forget which pictures were chosen? Your own pictograms are kept.')) return;
+      if (!(await askConfirm('Forget which pictures were chosen? Your own pictograms are kept.'))) return;
       update(s => { s.memory = emptyMemory(); }); renderSettings(); break;
     case 'resetAll':
-      if (!confirm('Delete all plans, routines and your own pictograms on this device?')) return;
+      if (!(await askConfirm('Delete all plans, routines and your own pictograms on this device?'))) return;
       resetAll(); go('today'); break;
   }
 });
@@ -1323,7 +1352,7 @@ document.addEventListener('change', async e => {
       importBackup(await el.files[0].text());
       toast('Backup imported.');
       render();
-    } catch (err) { alert(err.message || 'Could not import this file.'); }
+    } catch (err) { toast(err.message || 'Could not import this file.'); }
   }
 });
 

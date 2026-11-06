@@ -41,7 +41,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ---------- top bar ---------- */
 .topbar {
-  position: sticky; top: 0; z-index: 10;
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
   background: color-mix(in srgb, var(--bg) 92%, transparent);
@@ -353,3 +353,9 @@ input[type=range] { padding: 0; border: 0; background: none; }
 .ai-ok { font-weight: 800; color: var(--good); }
 .save-row { align-items: center; }
 .plan .sticky-actions { margin-top: 14px; }
+
+/* ---------- in-app dialogs ---------- */
+#ask { width: min(460px, calc(100vw - 32px)); border-radius: 22px; margin: auto; }
+.ask-sheet h2 { margin: 4px 0 8px; font-size: 1.25rem; text-wrap: balance; }
+.ask-sheet .row-actions { justify-content: flex-end; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
