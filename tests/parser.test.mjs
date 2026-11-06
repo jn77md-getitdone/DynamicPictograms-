@@ -47,8 +47,8 @@ test('splits "and" only when both halves are known activities', () => {
 });
 
 test('unknown activities are kept and flagged for a picture', () => {
-  const [s] = parsePlan('climbing wall', BUILTIN_PICTOGRAMS);
-  assert.equal(s.label, 'Climbing wall');
+  const [s] = parsePlan('zorbing in the hall', BUILTIN_PICTOGRAMS);
+  assert.equal(s.label, 'Zorbing in the hall');
   assert.equal(s.needsPicture, true);
 });
 

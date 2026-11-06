@@ -1,11 +1,11 @@
 // Offline support: the app itself is cached so it opens without internet.
 // Online pictograms (ARASAAC) are cached the first time they are shown.
-const VERSION = 'v1';
+const VERSION = 'v2';
 const APP_CACHE = `app-${VERSION}`;
 const IMG_CACHE = 'pictogram-images';
 const APP_FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
-  'js/app.js', 'js/library.js', 'js/parser.js', 'js/store.js', 'js/speech.js', 'js/ai.js', 'js/arasaac.js',
+  'js/app.js', 'js/library.js', 'js/parser.js', 'js/store.js', 'js/speech.js', 'js/ai.js', 'js/arasaac.js', 'js/memory.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 

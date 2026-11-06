@@ -16,15 +16,21 @@ The app turns it into a list of pictograms in the right order. The person using 
 
 | | |
 |---|---|
-| **Plan from a sentence** | Type it or dictate it with 🎤. This works offline on the device: it understands "then", commas, "before"/"after", times ("at 8", "7pm", "noon") and "bath and bed". |
-| **Optional AI planner** | Claude can turn longer, free-form descriptions into steps. You need your own Anthropic API key (Settings → AI planner). |
-| **Pictures that stay the same** | Every activity always gets the same picture, label and category colour, so the person learns to recognise it. When you change a picture (photo, emoji or online pictogram), the app can remember it, and that activity uses your picture from then on. |
-| **Your own pictograms** | Take a photo of the real thing (their toothbrush, their school bus, Grandma), or search thousands of ARASAAC action pictograms online. Add words that should find it ("stable" → *Horse club*). |
-| **Categories → groups → items** | The library is a tree (e.g. *Food & drink → Breakfast → Pancakes*), with colour-coded categories. |
-| **Routines** | Save lists you use again ("School morning", "Swimming day"). Use one for today in one tap, or add it to a plan. |
+| **Start by talking** | Tap the big 🎤 and say what will happen today. When you stop talking, the list of pictograms is made. You can also type. |
+| **Suggestions for every step** | Each step shows a strip of pictures to choose from: pictures **chosen before**, up to **2 library pictures** (built-in plus an ARASAAC action pictogram), and **3 new AI drawings** made for that activity. Tap one to use it. |
+| **AI-drawn pictograms** | With an Anthropic API key, Claude draws new pictograms (SVG) in one fixed house style: flat colours, bold outlines, a simple figure. Generated pictures therefore look like one set. You can also describe a picture yourself (“girl in a wheelchair at the pool”) in the picker's ✨ AI draw tab. Set your country in Settings so food, schools and buses look familiar. |
+| **It learns** | When a plan is used, each picture in it counts as chosen. Next time the favourite picture is preselected. Once the same picture has been chosen twice in a row, the activity is “settled”: it's used automatically, and no new AI drawings are requested for it. Earlier drawings are cached and reused, so the app gets faster and cheaper over time. |
+| **Offline planner** | Without AI it still works offline: it understands "then", commas, "before"/"after", times ("at 8", "7pm", "noon") and "bath and bed". |
+| **Broad library** | About 200 built-in pictograms. They include European and Nordic food (rye bread, porridge, meatballs, pastries…), clubs and sports (handball, scouts, gymnastics…), weather clothes, aids (hearing aid, wheelchair), calming activities and feelings. Danish words such as *rugbrød*, *SFO* and *madpakke* are understood. |
+| **Your own pictograms** | Take a photo of the real thing, search ARASAAC online, use an emoji, or let AI draw one. Add words that should find it (“stable” → *Horse club*). |
+| **Routines** | Save lists you use again (“School morning”). Use one for today in one tap, or add it to a plan. |
 | **Edit everything** | Change the order (▲▼), pictures, words, times and what is said aloud. |
-| **Person mode** | 👀 shows a simple view with no editing. To get back to helper mode, hold the 🔒 for 2 seconds. |
-| **Private & offline** | Everything is stored on the device. It can be installed to the home screen and works without internet. Backups can be exported and imported. |
+| **Person mode** | 👀 shows a simple view with no editing: tap a picture to hear it, tap ✓ when it's done. To get back to helper mode, hold the 🔒 for 2 seconds. |
+| **Private & offline** | Everything, including what the app has learned, is stored on the device. It can be installed to the home screen and works without internet. Backups can be exported and imported. |
+
+### About AI pictures and cost
+
+Claude draws pictograms as vector graphics (SVG), not photos or paintings. That suits simple, clear pictograms, and they stay sharp at any size. Each plan uses one request to make the list, plus one request per *new* activity to draw 3 pictures. Activities that are settled, or drawn before, cost nothing. You can pick the model in Settings: Opus 5.5 (best drawings), Sonnet 5.5 (faster) or Haiku 5.5 (cheapest).
 
 ## Running it
 
@@ -44,7 +50,8 @@ index.html, styles.css    app shell and styling
 js/app.js                 views: Today, Plan, Routines, Pictograms, Settings, picture picker
 js/library.js             built-in pictogram library (category tree)
 js/parser.js              offline "sentence → steps" planner
-js/ai.js                  optional Claude planner (Anthropic SDK, your own API key)
+js/ai.js                  optional Claude planner + pictogram drawing (Anthropic SDK, your own API key)
+js/memory.js              learning: which picture is chosen for which activity
 js/speech.js              read aloud + dictation (browser speech engines)
 js/arasaac.js             online ARASAAC pictogram search
 js/store.js               on-device storage, backup/restore

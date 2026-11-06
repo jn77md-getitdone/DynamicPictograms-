@@ -17,6 +17,9 @@ export const DEFAULT_SETTINGS = {
   aiEnabled: false,
   aiKey: '',
   aiModel: 'claude-opus-5-5',
+  aiDraw: true,            // AI draws new pictograms for each step
+  region: '',              // e.g. 'Denmark' - the AI draws food, places etc. as they look there
+  autoPlanAfterDictation: true,
 };
 
 function emptyState() {
@@ -28,6 +31,7 @@ function emptyState() {
     draft: [],          // the plan being edited
     draftText: '',
     childMode: false,
+    memory: { picks: {}, drawn: {} }, // what the app has learned (see memory.js)
   };
 }
 
@@ -40,7 +44,7 @@ function load() {
     if (!raw) return emptyState();
     const data = JSON.parse(raw);
     const base = emptyState();
-    return { ...base, ...data, settings: { ...base.settings, ...(data.settings || {}) } };
+    return { ...base, ...data, settings: { ...base.settings, ...(data.settings || {}) }, memory: { ...base.memory, ...(data.memory || {}) } };
   } catch {
     return emptyState();
   }

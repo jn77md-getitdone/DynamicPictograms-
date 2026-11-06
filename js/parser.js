@@ -35,7 +35,7 @@ export function stem(word) {
 }
 
 export function tokenize(text) {
-  return (text.toLowerCase().match(/[a-z0-9’']+/g) || []).map(t => t.replace(/^[’']+|[’']+$/g, '')).filter(Boolean);
+  return (text.toLowerCase().match(/[\p{L}\p{N}’']+/gu) || []).map(t => t.replace(/^[’']+|[’']+$/g, '')).filter(Boolean);
 }
 
 function withLabel(p) {
@@ -80,6 +80,22 @@ export function matchChunk(text, index) {
     }
   }
   return best;
+}
+
+// The best few different pictograms for a phrase, best first.
+export function rankMatches(text, index, n = 3) {
+  const results = [];
+  for (const entry of index) {
+    const m = matchChunk(text, [entry]);
+    if (m) results.push(m);
+  }
+  results.sort((a, b) => b.score - a.score || a.pos - b.pos);
+  const seen = new Set();
+  return results.filter(r => {
+    const k = r.picto.image.value;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  }).slice(0, n).map(r => r.picto);
 }
 
 function pad(n) { return String(n).padStart(2, '0'); }
