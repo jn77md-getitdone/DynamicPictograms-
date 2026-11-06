@@ -274,6 +274,30 @@ const RAW = [
   ['respite', 'people', 'others', '🏡', 'Respite home', 'Go to the respite home', 'respite', 'aflastning', 'short break', 'respite care'],
 ];
 
+// Danish words, so dictation in Danish finds the same pictograms.
+const DA = {
+  'wake-up': ['vågne', 'stå op', 'op'], toilet: ['toilet', 'tisse', 'ble'], 'wash-hands': ['vaske hænder', 'håndvask'],
+  'wash-face': ['vaske ansigt'], 'brush-teeth': ['børste tænder', 'tandbørste', 'tænder'], shower: ['bad', 'brusebad', 'gå i bad'],
+  bath: ['badekar', 'karbad'], 'brush-hair': ['rede hår', 'børste hår'], 'get-dressed': ['tøj på', 'klæde om', 'tage tøj på'],
+  shoes: ['sko'], coat: ['jakke', 'frakke'], breakfast: ['morgenmad'], lunch: ['frokost'], dinner: ['aftensmad', 'middag'],
+  snack: ['mellemmåltid', 'frugt'], water: ['vand'], milk: ['mælk'], juice: ['juice', 'saft'],
+  bus: ['bus', 'bussen'], car: ['bil', 'bilen', 'køre'], walk: ['gå tur', 'gåtur'], bike: ['cykel', 'løbehjul'], train: ['tog', 'toget', 'metro'],
+  shopping: ['handle', 'indkøb', 'supermarked'], park: ['park', 'parken'], playground: ['legeplads', 'gynger'], home: ['hjem', 'gå hjem'],
+  school: ['skole', 'skolen'], kindergarten: ['børnehave', 'vuggestue', 'dagpleje'], reading: ['læse', 'lektier i læsning'],
+  writing: ['skrive'], homework: ['lektier'], play: ['lege', 'legetøj'], drawing: ['tegne', 'male'], puzzle: ['puslespil'],
+  games: ['spil', 'brætspil'], swimming: ['svømme', 'svømning', 'svømmehal'], football: ['fodbold'], 'play-outside': ['lege ude', 'udenfor', 'haven'],
+  trampoline: ['trampolin'], tablet: ['ipad', 'tablet', 'skærm'], tv: ['fjernsyn', 'tv', 'se tv'], movie: ['film', 'biograf'],
+  music: ['musik', 'høre musik'], dance: ['danse'], party: ['fest', 'fødselsdag'], 'tidy-up': ['rydde op', 'oprydning'],
+  'set-table': ['dække bord'], cook: ['lave mad', 'bage'], medicine: ['medicin', 'pille'], doctor: ['læge', 'lægen'],
+  dentist: ['tandlæge', 'tandlægen'], hospital: ['hospital', 'sygehus'], therapy: ['terapi', 'ergoterapi', 'talepædagog'],
+  physio: ['fysioterapi', 'fys'], haircut: ['frisør', 'klippe hår'], grandma: ['mormor', 'farmor', 'bedstemor'],
+  grandpa: ['morfar', 'farfar', 'bedstefar'], mum: ['mor'], dad: ['far'], family: ['familie'], friend: ['ven', 'veninde', 'legeaftale'],
+  teacher: ['lærer', 'læreren'], babysitter: ['barnepige'], visitors: ['gæster', 'besøg'], 'quiet-time': ['slappe af', 'pause', 'ro'],
+  nap: ['lur', 'sove middag'], wait: ['vente'], hug: ['kram'], pyjamas: ['nattøj', 'pyjamas'], story: ['godnathistorie', 'historie'],
+  bed: ['seng', 'sengetid', 'sove', 'puttes', 'godnat'],
+};
+for (const row of RAW) if (DA[row[0]]) row.push(...DA[row[0]]);
+
 export const BUILTIN_PICTOGRAMS = RAW.map(([id, category, subcategory, emoji, label, speech, ...keywords]) => ({
   id, category, subcategory, label, speech, keywords,
   image: { type: 'emoji', value: emoji },

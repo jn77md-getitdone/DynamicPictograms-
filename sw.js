@@ -1,6 +1,6 @@
 // Offline support: the app itself is cached so it opens without internet.
 // Online pictograms (ARASAAC) are cached the first time they are shown.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const APP_CACHE = `app-${VERSION}`;
 const IMG_CACHE = 'pictogram-images';
 const APP_FILES = [

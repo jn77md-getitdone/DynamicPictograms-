@@ -20,6 +20,8 @@ export const DEFAULT_SETTINGS = {
   aiDraw: true,            // AI draws new pictograms for each step
   region: '',              // e.g. 'Denmark' - the AI draws food, places etc. as they look there
   autoPlanAfterDictation: true,
+  useClaude: true,         // inside Claude: use the viewer's Claude account
+  drawQuality: 'good',     // 'good' | 'best'
 };
 
 function emptyState() {
@@ -64,7 +66,11 @@ export function save() {
     return true;
   } catch (e) {
     console.warn('Could not save', e);
-    alert('The device storage is full. Try removing some photo pictograms, or export a backup in Settings.');
+    // Only warn about a full device once; storage can also be blocked entirely (private mode).
+    if (e && e.name === 'QuotaExceededError' && !save.warned) {
+      save.warned = true;
+      alert('The device storage is full. Try removing some photo pictograms, or export a backup in Settings.');
+    }
     return false;
   }
 }

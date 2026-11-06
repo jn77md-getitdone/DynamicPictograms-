@@ -2,8 +2,8 @@ import { CATEGORIES, BUILTIN_PICTOGRAMS, categoryById } from './library.js';
 import { parsePlan, newId, stepFromPicto, buildIndex, matchChunk, rankMatches } from './parser.js';
 import { activityKey, imageId, recordPick, rankedPicks, bestPick, isSettled, cacheDrawn, getDrawn, memoryStats, emptyMemory } from './memory.js';
 import { getState, update, subscribe, exportBackup, importBackup, resetAll, todayKey } from './store.js';
-import { speak, canSpeak, canListen, listen, getVoices } from './speech.js';
-import { planWithAI, drawPictograms } from './ai.js';
+import { speak, canSpeak, canListen, listen, getVoices, preferKeyboardDictation } from './speech.js';
+import { planWithAI, drawPictograms, askQuestions, aiAvailable, aiStatus, detectClaude, aiErrorMessage, canSendPhotos, photoForAI } from './ai.js';
 import { searchArasaac, ARASAAC_CREDIT } from './arasaac.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -184,48 +184,173 @@ function toggleDone(id) {
 }
 
 // ---------- PLAN ----------
-// Dictation first: tap the big microphone, say what will happen, and the list
-// of pictograms appears when you stop talking. Each step then shows suggested
-// pictures to choose from: learned ones, library ones and new AI drawings.
+// Three phases:
+//   1. talk       say (or type) what will happen; pictograms appear live as you speak
+//   2. questions  the AI asks a few clarifying questions (skipped without AI)
+//   3. edit       the ordered pictograms, with picture suggestions for each step
 
-function aiReady() { const s = S().settings; return !!(s.aiEnabled && s.aiKey); }
+function aiReady() { return aiAvailable(S().settings); }
+
+let phase = null;            // 'talk' | 'questions' | 'edit'
+let talkMode = 'replace';    // 'replace' = new plan, 'append' = add to the list
+let questions = null;        // [{ question, options, answer }] | null while loading
+let questionsError = '';
+let planBusy = false;
+
+function currentPhase() {
+  if (!phase) phase = S().draft.length ? 'edit' : 'talk';
+  return phase;
+}
 
 function renderPlan() {
+  const p = currentPhase();
+  const steps = ['talk', 'questions', 'edit'];
+  const names = { talk: '1. Talk', questions: '2. Questions', edit: '3. Pictograms' };
+  const stepper = `<ol class="stepper">${steps.map(s => `<li class="${s === p ? 'on' : steps.indexOf(s) < steps.indexOf(p) ? 'done' : ''}">${names[s]}</li>`).join('')}</ol>`;
+  main.innerHTML = `<section class="plan">${stepper}${p === 'talk' ? talkHTML() : p === 'questions' ? questionsHTML() : editHTML()}</section>`;
+  if (p === 'talk') updateLivePreview();
+}
+
+// ---- 1. talk ----
+function talkHTML() {
+  const st = S();
+  const listening = !!stopDictation;
+  const keyboard = preferKeyboardDictation();
+  return `
+    <div class="hero ${listening ? 'listening' : ''}">
+      <button class="mic-hero" id="micHero" data-action="dictate" aria-label="${listening ? 'Stop listening' : 'Start talking'}">${listening ? '⏹' : '🎤'}</button>
+      <div class="hero-text">
+        <strong>${listening ? 'Listening… tap ⏹ when you are done' : talkMode === 'append' ? 'What else will happen?' : 'Tell me about today'}</strong>
+        <span>${keyboard
+          ? 'Tap the microphone, then tap <b>🎤 on the keyboard</b> and speak. Tap <b>Next</b> when you are done.'
+          : 'Tap the microphone and say what will happen, e.g. “breakfast, then school, swimming with Grandma, dinner and bed”.'}</span>
+      </div>
+    </div>
+    <div class="say-box">
+      <textarea id="planText" rows="4" placeholder="What you say appears here. You can also type or correct it.">${esc(st.draftText)}</textarea>
+    </div>
+    <div class="live" id="livePreview" aria-live="polite"></div>
+    ${st.routines.length && talkMode === 'replace' ? `<div class="chips"><span class="chips-title">Or start from a routine:</span>
+      ${st.routines.map(r => `<button class="chip" data-action="addRoutine" data-id="${r.id}">${esc(r.name)}</button>`).join('')}</div>` : ''}
+    <div class="sticky-actions">
+      ${S().draft.length ? '<button class="btn big" data-action="backToEdit">← Back to list</button>' : ''}
+      <button class="btn primary big" data-action="talkNext" ${planBusy ? 'disabled' : ''}>${planBusy ? '<span class="spinner"></span> Working…' : 'Next →'}</button>
+    </div>`;
+}
+
+// "Speech to pictogram": show the pictograms recognised so far, live, while talking or typing.
+function updateLivePreview() {
+  const el = $('#livePreview');
+  const ta = $('#planText');
+  if (!el || !ta) return;
+  const text = ta.value.trim();
+  if (!text) { el.innerHTML = ''; return; }
+  const steps = applyMemory(parsePlan(text, allPictograms()));
+  el.innerHTML = steps.length ? `<span class="live-title">I hear:</span>${steps.map(s => `
+    <span class="live-item ${s.needsPicture ? 'unknown' : ''}" style="--cat:${catColor(s.category)}">
+      <span class="pic">${imageHTML(s.image, s.label)}</span><span class="live-label">${esc(s.label)}</span>
+    </span>`).join('')}` : '';
+}
+
+function dictate() {
+  if (stopDictation) { stopDictation(); return; }
+  const ta = $('#planText');
+  if (preferKeyboardDictation()) {
+    // Built-in dictation is unreliable here: use the keyboard's own microphone.
+    ta.focus();
+    toast('Tap 🎤 on the keyboard and speak.');
+    return;
+  }
+  const before = ta.value.trim();
+  const prefix = before ? before + ', ' : '';
+  let text = prefix;
+  const show = () => { const t = $('#planText'); if (t) t.value = text; updateLivePreview(); };
+  stopDictation = listen({
+    lang: S().settings.speechLang,
+    onText: t => { text = prefix + t; show(); },
+    onError: msg => {
+      if (msg === 'not-allowed' || msg === 'service-not-allowed') toast('Microphone or dictation is not allowed. Use 🎤 on the keyboard instead, or allow it in Settings → Safari / Siri & Dictation.');
+      else toast('Dictation did not work here. Tap in the box and use 🎤 on the keyboard instead.');
+    },
+    onEnd: ({ reason }) => {
+      stopDictation = null;
+      update(st => { st.draftText = text.replace(/,\s*$/, ''); });
+      renderPlan();
+      if (reason === 'silent') {
+        toast('I could not hear anything. Tap in the box and use 🎤 on the keyboard instead.');
+        $('#planText')?.focus();
+      }
+    },
+  });
+  renderPlan();
+  show();
+}
+
+async function talkNext() {
+  const text = ($('#planText')?.value || '').trim();
+  update(st => { st.draftText = text; });
+  if (!text) { toast('Say or type what is going to happen first.'); return; }
+  if (stopDictation) { stopDictation(); }
+  if (!aiReady()) { await makePlan(); return; }
+  phase = 'questions';
+  questions = null;
+  questionsError = '';
+  renderPlan();
+  try {
+    const qs = await askQuestions(text, S().settings);
+    if (phase !== 'questions') return;
+    questions = qs.map(q => ({ ...q, answer: '' }));
+    if (!questions.length) { await makePlan(); return; }
+  } catch (e) {
+    console.error(e);
+    questionsError = aiErrorMessage(e);
+    questions = [];
+  }
+  renderPlan();
+}
+
+// ---- 2. questions ----
+function questionsHTML() {
+  if (questions === null) {
+    return `<div class="thinking"><span class="spinner"></span> Reading what you said and thinking of questions…</div>
+      <div class="sticky-actions"><button class="btn big" data-action="skipQuestions">Skip questions →</button></div>`;
+  }
+  return `
+    <p class="said">“${esc(S().draftText)}”</p>
+    ${questionsError ? `<p class="hint error">${esc(questionsError)} You can still continue.</p>` : ''}
+    ${questions.length ? '<h2 class="q-title">A few questions so the pictures are right</h2>' : ''}
+    ${questions.map((q, i) => `
+      <div class="q-card">
+        <p class="q-text">${esc(q.question)}</p>
+        <div class="chips">${q.options.map(o => `<button class="chip ${q.answer === o ? 'on' : ''}" data-action="answer" data-q="${i}" data-value="${esc(o)}">${esc(o)}</button>`).join('')}</div>
+        <input class="q-other" data-q="${i}" value="${q.options.includes(q.answer) ? '' : esc(q.answer)}" placeholder="Other answer (type or use 🎤 on the keyboard)">
+      </div>`).join('')}
+    <div class="sticky-actions">
+      <button class="btn big" data-action="backToTalk">← Back</button>
+      <button class="btn primary big" data-action="makePlan" ${planBusy ? 'disabled' : ''}>${planBusy ? '<span class="spinner"></span> Making pictograms…' : 'Make pictograms →'}</button>
+    </div>`;
+}
+
+// ---- 3. edit ----
+function editHTML() {
   const st = S();
   const draft = st.draft;
-  const listening = !!stopDictation;
-  main.innerHTML = `
-    <section class="plan">
-      <div class="hero ${listening ? 'listening' : ''}">
-        ${canListen() ? `<button class="mic-hero" id="micHero" data-action="dictate" aria-label="${listening ? 'Stop listening' : 'Tap and tell me about today'}">${listening ? '⏹' : '🎤'}</button>` : ''}
-        <div class="hero-text">
-          <strong>${listening ? 'Listening… tap ⏹ when you are done' : 'Tell me about today'}</strong>
-          <span>${canListen() ? 'Tap the microphone and say what will happen, for example' : 'Type what will happen, for example'} “breakfast, then school, swimming with Grandma, dinner and bed”.</span>
-        </div>
-      </div>
-      <div class="say-box">
-        <textarea id="planText" rows="3" placeholder="…or type it here">${esc(st.draftText)}</textarea>
-      </div>
-      <div class="row-actions">
-        <button class="btn primary" data-action="generate" data-mode="replace">${aiReady() ? '✨' : '🧩'} ${draft.length ? 'Make new list' : 'Make pictograms'}</button>
-        ${draft.length ? '<button class="btn" data-action="generate" data-mode="append">➕ Add to list</button>' : ''}
-      </div>
-      ${st.routines.length ? `<div class="chips"><span class="chips-title">Add a routine:</span>
-        ${st.routines.map(r => `<button class="chip" data-action="addRoutine" data-id="${r.id}">${esc(r.name)}</button>`).join('')}</div>` : ''}
-
-      <div id="planStatus" class="plan-status" aria-live="polite">${statusText()}</div>
-      <div id="draftList">${renderDraftList(draft)}</div>
-
-      <div class="row-actions">
-        <button class="btn" data-action="addStep">➕ Add a step</button>
-        ${draft.length ? '<button class="btn danger-text" data-action="clearDraft">🗑️ Clear</button>' : ''}
-      </div>
-      ${draft.length ? `
-      <div class="sticky-actions">
-        <button class="btn primary big" data-action="useToday">▶️ Use for today</button>
-        <button class="btn big" data-action="saveRoutine">💾 Save as routine</button>
-      </div>` : ''}
-    </section>`;
+  return `
+    <div class="row-actions">
+      <button class="btn" data-action="talkMore">🎤 Add more by talking</button>
+      <button class="btn" data-action="newPlan">↺ New plan</button>
+    </div>
+    <div id="planStatus" class="plan-status" aria-live="polite">${statusText()}</div>
+    ${draft.length ? '<p class="hint">Check the order (▲▼) and tap the best picture under each step. 📷 turns a photo of the real thing into a cartoon pictogram.</p>' : ''}
+    <div id="draftList">${renderDraftList(draft)}</div>
+    <div class="row-actions">
+      <button class="btn" data-action="addStep">➕ Add a step</button>
+    </div>
+    ${draft.length ? `
+    <div class="sticky-actions">
+      <button class="btn primary big" data-action="useToday">▶️ Use for today</button>
+      <button class="btn big" data-action="saveRoutine">💾 Save as routine</button>
+    </div>` : ''}`;
 }
 
 function renderDraftList(draft) {
@@ -320,6 +445,7 @@ function renderSuggest(step) {
         </button>`).join('')}
       ${Array.from({ length: drawingSlots }, () => '<span class="sg-item loading" aria-hidden="true"><span class="spinner"></span><span class="sg-tag">Drawing…</span></span>').join('')}
       ${!entry.drawing && aiReady() && S().settings.aiDraw ? `<button class="sg-item sg-action" data-action="drawNew" data-id="${step.id}">✨<span class="sg-tag">${entry.drawn?.length ? 'Draw again' : 'Draw'}</span></button>` : ''}
+      <button class="sg-item sg-action" data-action="photoStep" data-id="${step.id}">📷<span class="sg-tag">${canSendPhotos(S().settings) ? 'Photo → cartoon' : 'Photo'}</span></button>
     </div>
     ${entry.error ? `<p class="hint error">${esc(entry.error)}</p>` : ''}`;
 }
@@ -452,35 +578,41 @@ function upsertLearnedPicto(st, step, key, image) {
   });
 }
 
-function rerenderDraft() { $('#draftList').innerHTML = renderDraftList(S().draft); }
+function rerenderDraft() { const el = $('#draftList'); if (el) el.innerHTML = renderDraftList(S().draft); }
 
 function setDraft(steps, mode) {
   update(st => { st.draft = mode === 'append' ? [...st.draft, ...steps] : steps; });
 }
 
-async function generate(mode, btn) {
-  const text = $('#planText').value.trim();
-  update(st => { st.draftText = text; });
-  if (!text) { toast('Tap the microphone or type what is going to happen first.'); return; }
+// Make the pictogram list from what was said (+ answers). Uses AI when available.
+async function makePlan() {
+  const text = S().draftText.trim();
+  if (!text) { phase = 'talk'; renderPlan(); return; }
+  planBusy = true;
+  renderPlan();
   let steps = null;
   if (aiReady()) {
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Thinking…'; }
     try {
-      steps = await planWithAI(text, allPictograms(), S().settings);
+      steps = await planWithAI(text, allPictograms(), S().settings, questions || []);
     } catch (e) {
       console.error(e);
-      toast((e?.status === 401 ? 'The API key was not accepted.' : (e.message || 'AI planning failed.')) + ' Using the offline planner.');
+      toast(aiErrorMessage(e) + ' Using the offline planner.');
     }
   }
   if (!steps || !steps.length) steps = parsePlan(text, allPictograms());
-  if (!steps.length) { renderPlan(); toast('No activities found. Try short phrases separated by commas.'); return; }
+  planBusy = false;
+  if (!steps.length) { phase = 'talk'; renderPlan(); toast('No activities found. Try short phrases separated by commas.'); return; }
   applyMemory(steps);
-  setDraft(steps, mode);
+  const mode = talkMode;
   if (mode !== 'append') sug.clear();
+  setDraft(steps, mode);
+  update(st => { st.draftText = ''; });
+  phase = 'edit';
+  talkMode = 'replace';
+  questions = null;
   renderPlan();
   loadSuggestions(steps);
-  const missing = steps.filter(s => s.needsPicture).length;
-  toast(missing && !aiReady() ? `${steps.length} steps made. ${missing} need a picture.` : `${steps.length} steps made. Tap a picture to choose it.`);
+  toast(`${steps.length} steps made. Tap a picture to choose it.`);
 }
 
 function draftStep(id) { return S().draft.find(s => s.id === id); }
@@ -495,28 +627,16 @@ function moveStep(id, delta) {
   rerenderDraft();
 }
 
-function dictate() {
-  if (stopDictation) { stopDictation(); return; }
-  const before = ($('#planText')?.value || '').trim();
-  const draftWasEmpty = !S().draft.length;
-  // A new day plan starts from an empty text; adding to a list keeps what was typed.
-  const prefix = draftWasEmpty ? '' : (before ? before + ', ' : '');
-  let text = prefix;
-  const show = () => { const ta = $('#planText'); if (ta) ta.value = text; };
-  stopDictation = listen({
-    lang: S().settings.speechLang,
-    onText: t => { text = prefix + t; show(); },
-    onEnd: () => {
-      stopDictation = null;
-      const heard = text.trim() !== prefix.trim();
-      update(st => { st.draftText = text; });
-      renderPlan();
-      if (heard && S().settings.autoPlanAfterDictation && draftWasEmpty) generate('replace', $('[data-action=generate]'));
-    },
-    onError: e => { toast(e.message === 'not-allowed' ? 'Microphone permission was denied. Allow it in the browser settings.' : `Dictation: ${e.message}`); },
-  });
-  renderPlan();
-  show();
+// Photo of the real thing -> cartoon pictogram for a step.
+async function photoForStep(id) {
+  const step = draftStep(id);
+  if (!step) return;
+  const res = await openPicker({ title: `Photo of “${step.label}”`, startTab: 'photo', context: step });
+  if (!res?.image) return;
+  update(() => { step.image = res.image; step.needsPicture = false; step.userPicked = true; });
+  const entry = suggestionsFor(step);
+  if (res.image.source === 'photo-ai' || res.image.type === 'photo') entry.drawn = [res.image, ...(entry.drawn || []).filter(i => imageId(i) !== imageId(res.image))];
+  rerenderDraft();
 }
 
 // ---------- ROUTINES ----------
@@ -652,10 +772,12 @@ function openPictoEditor(p) {
 
 // ---------- PICTURE PICKER ----------
 // Resolves to { picto } (library choice), { image, remember } (new picture), or null.
-function openPicker({ allowLibrary = true, title = 'Choose a picture', stepLabel = '', initialQuery = '' } = {}) {
+function openPicker({ allowLibrary = true, title = 'Choose a picture', initialQuery = '', startTab = null, context = null } = {}) {
   return new Promise(resolve => {
     const dlg = $('#picker');
-    let tab = allowLibrary ? 'library' : 'photo';
+    let tab = startTab || (allowLibrary ? 'library' : 'photo');
+    let photoLarge = null; // bigger copy sent to the AI to draw a cartoon
+    let cartoon = { results: null, error: '', loading: false };
     let cat = null, sub = null, query = initialQuery;
     let online = { q: initialQuery, results: null, error: '', loading: false };
     let photo = null;
@@ -663,7 +785,8 @@ function openPicker({ allowLibrary = true, title = 'Choose a picture', stepLabel
     const settings = S().settings;
     const finish = val => { resolve(val); dlg.close(); };
 
-    const rememberBox = () => stepLabel ? `<label class="check"><input type="checkbox" id="remember" checked> Use this picture every time for “${esc(stepLabel)}”</label>` : '';
+    const rememberBox = () => '';
+    const cartoonOk = canSendPhotos(settings);
 
     const libraryBody = () => {
       const pics = allPictograms();
@@ -695,13 +818,21 @@ function openPicker({ allowLibrary = true, title = 'Choose a picture', stepLabel
     };
 
     const photoBody = () => `
-      <p class="hint">A photo of the real thing (their own cup, their school, Grandma) is often the easiest to understand.</p>
+      <p class="hint">Take a photo of the real thing: their own cup, their school, their bus, Grandma.${cartoonOk ? ' The AI can turn it into a <strong>cartoon pictogram</strong> that matches the other pictures, so it is easy to recognise but still simple.' : ''}</p>
       <div class="photo-buttons">
         <label class="btn primary">📷 Take photo<input type="file" accept="image/*" capture="environment" data-photo hidden></label>
         <label class="btn">🖼️ Choose from device<input type="file" accept="image/*" data-photo hidden></label>
       </div>
-      ${photo ? `<div class="photo-preview"><img src="${photo}" alt="Chosen photo"></div>${rememberBox()}
-        <button class="btn primary big" data-use="photo">Use this photo</button>` : ''}`;
+      ${photo ? `<div class="photo-preview"><img src="${photo}" alt="Chosen photo"></div>
+        <div class="row-actions">
+          ${cartoonOk ? `<button class="btn ai big" data-use="cartoon" ${cartoon.loading ? 'disabled' : ''}>${cartoon.loading ? '<span class="spinner"></span> Drawing cartoon…' : '✨ Make cartoon version'}</button>` : ''}
+          <button class="btn big" data-use="photo">Use the photo as it is</button>
+        </div>
+        ${cartoon.loading ? '<p class="hint">This can take up to a minute.</p>' : ''}
+        ${cartoon.error ? `<p class="hint error">${esc(cartoon.error)}</p>` : ''}
+        ${cartoon.results ? (cartoon.results.length ? `<div class="grid">${cartoon.results.map((img, i) => `
+          <button class="tile" data-cartoon-index="${i}"><span class="pic">${imageHTML(img, 'Cartoon version')}</span><span class="tile-label">Use this</span></button>`).join('')}</div>`
+          : '<p class="hint">No cartoon came back. Try again or use the photo.</p>') : ''}` : ''}`;
 
     const onlineBody = () => `
       <form class="search-row" data-online-form><input type="search" name="q" value="${esc(online.q)}" placeholder="Search, e.g. swimming" enterkeyhint="search">
@@ -762,11 +893,23 @@ function openPicker({ allowLibrary = true, title = 'Choose a picture', stepLabel
       if (subBtn) { sub = subBtn.dataset.pickSub || null; draw(); return; }
       const pick = t.closest('[data-action="pick"]');
       if (pick) return finish({ picto: pictoById(pick.dataset.id) });
+      const cPick = t.closest('[data-cartoon-index]');
+      if (cPick) return finish({ image: cartoon.results[Number(cPick.dataset.cartoonIndex)] });
       const aiPick = t.closest('[data-ai-index]');
       if (aiPick) return finish({ image: drawState.results[Number(aiPick.dataset.aiIndex)] });
       const onl = t.closest('[data-online-url]');
       if (onl) return finish({ image: { type: 'url', value: onl.dataset.onlineUrl, source: 'arasaac' }, remember: remember() });
       const use = t.closest('[data-use]');
+      if (use?.dataset.use === 'cartoon' && photoLarge && !cartoon.loading) {
+        cartoon = { results: null, error: '', loading: true }; draw();
+        const what = context || { label: $('#pictoForm [name=label]')?.value || '', detail: '', speech: '' };
+        photoForAI(photoLarge)
+          .then(img => drawPictograms(what, settings, 2, img))
+          .then(r => { cartoon.results = r; })
+          .catch(err => { console.error(err); cartoon.error = aiErrorMessage(err); })
+          .finally(() => { cartoon.loading = false; if (dlg.open && tab === 'photo') draw(); });
+        return;
+      }
       if (use?.dataset.use === 'photo' && photo) return finish({ image: { type: 'photo', value: photo }, remember: remember() });
       if (use?.dataset.use === 'emoji') {
         const v = $('#emojiInput', dlg).value.trim();
@@ -782,7 +925,12 @@ function openPicker({ allowLibrary = true, title = 'Choose a picture', stepLabel
     };
     dlg.onchange = async e => {
       if (e.target.matches('[data-photo]') && e.target.files[0]) {
-        try { photo = await resizeImage(e.target.files[0]); draw(); }
+        try {
+          photo = await resizeImage(e.target.files[0]);
+          photoLarge = cartoonOk ? await resizeImage(e.target.files[0], 900, false) : null;
+          cartoon = { results: null, error: '', loading: false };
+          draw();
+        }
         catch { toast('Could not read that picture.'); }
       }
     };
@@ -795,7 +943,7 @@ function openPicker({ allowLibrary = true, title = 'Choose a picture', stepLabel
         drawState = { q, results: null, error: '', loading: true }; draw();
         drawPictograms({ label: q, detail: '', speech: '' }, settings, 3)
           .then(r => { drawState.results = r; })
-          .catch(err => { drawState.error = `Could not draw: ${err.message || err}`; })
+          .catch(err => { drawState.error = `Could not draw: ${aiErrorMessage(err)}`; })
           .finally(() => { drawState.loading = false; if (dlg.open && tab === 'ai') draw(); });
       }
     };
@@ -809,17 +957,24 @@ function openPicker({ allowLibrary = true, title = 'Choose a picture', stepLabel
 }
 
 // Square-crop and shrink photos so they store small and look consistent.
-function resizeImage(file, size = 360) {
+function resizeImage(file, size = 360, square = true) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
-      const s = Math.min(img.width, img.height);
       const c = document.createElement('canvas');
-      c.width = c.height = size;
       const ctx = c.getContext('2d');
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);
-      ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+      if (square) {
+        const s = Math.min(img.width, img.height);
+        c.width = c.height = size;
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);
+        ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+      } else {
+        const scale = Math.min(1, size / Math.max(img.width, img.height));
+        c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+      }
       URL.revokeObjectURL(url);
       resolve(c.toDataURL('image/jpeg', 0.82));
     };
@@ -888,9 +1043,7 @@ function renderSettings() {
           <label class="check"><input type="checkbox" name="showTimes" ${s.showTimes ? 'checked' : ''}> Show times on cards</label>
         </fieldset>
 
-        <fieldset><legend>Speech</legend>
-          <label class="check"><input type="checkbox" name="autoPlanAfterDictation" ${s.autoPlanAfterDictation ? 'checked' : ''}> Make the pictograms as soon as I stop talking</label>
-          ${canSpeak() ? '' : '<p class="hint error">This browser cannot speak aloud.</p>'}
+        <fieldset><legend>Speech</legend>          ${canSpeak() ? '' : '<p class="hint error">This browser cannot speak aloud.</p>'}
           <label class="check"><input type="checkbox" name="speakOnTap" ${s.speakOnTap ? 'checked' : ''}> Say the pictogram aloud when it is tapped</label>
           <label class="check"><input type="checkbox" name="speakOnDone" ${s.speakOnDone ? 'checked' : ''}> Praise and say what is next when something is done</label>
           <label class="field-label">Language
@@ -911,16 +1064,27 @@ function renderSettings() {
           <p class="credit">${esc(ARASAAC_CREDIT)} Free for non-commercial use.</p>
         </fieldset>
 
-        <fieldset><legend>AI (optional)</legend>
-          <p class="hint">Without AI, the app makes pictograms on the device from its library. With AI (Claude), it understands free, spoken descriptions and <strong>draws new pictograms</strong> for each step. You need your own Anthropic API key. The key is stored only on this device; your description is sent to Anthropic when a plan is made.</p>
-          <label class="check"><input type="checkbox" name="aiEnabled" ${s.aiEnabled ? 'checked' : ''}> Use AI to make plans</label>
-          <label class="check"><input type="checkbox" name="aiDraw" ${s.aiDraw ? 'checked' : ''}> Draw 3 new pictograms for each step</label>
-          <label class="field-label">Country / culture <small>(so food, schools, buses… look familiar)</small><input name="region" value="${esc(s.region)}" placeholder="e.g. Denmark"></label>
+        <fieldset><legend>AI</legend>
+          ${aiStatus.inClaude ? `
+          <p class="ai-ok">✅ Using your Claude account. No API key needed.</p>
+          <p class="hint">The first time, Claude asks you to allow this page to use Claude. It uses your normal Claude usage.</p>
+          <label class="check"><input type="checkbox" name="useClaude" ${s.useClaude !== false ? 'checked' : ''}> Use AI (questions, plans and drawings)</label>
+          <label class="field-label">Drawing quality
+            <select name="drawQuality"><option value="good" ${s.drawQuality !== 'best' ? 'selected' : ''}>Good and quicker</option><option value="best" ${s.drawQuality === 'best' ? 'selected' : ''}>Best (slower)</option></select></label>`
+          : `
+          <p class="hint">With AI, the app asks clarifying questions, makes the plan from what you said, and <strong>draws new pictograms</strong> for each step. <strong>Easiest:</strong> open the app inside Claude (the link you got from Claude), which uses your Claude login. <strong>Or</strong> paste your own Anthropic API key here; it is stored only on this device.</p>
+          <label class="check"><input type="checkbox" name="aiEnabled" ${s.aiEnabled ? 'checked' : ''}> Use AI with my API key</label>
           <label class="field-label">Anthropic API key<input name="aiKey" type="password" autocomplete="off" value="${esc(s.aiKey)}" placeholder="sk-ant-..."></label>
           <label class="field-label">Model
             <select name="aiModel">${[['claude-opus-5-5', 'Claude Opus 5.5 (best)'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5 (faster)'], ['claude-haiku-5-5', 'Claude Haiku 5.5 (fastest, cheapest)']]
-              .map(([v, n]) => `<option value="${v}" ${s.aiModel === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+              .map(([v, n]) => `<option value="${v}" ${s.aiModel === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`}
+          <label class="check"><input type="checkbox" name="aiDraw" ${s.aiDraw ? 'checked' : ''}> Draw 3 new pictograms for each step</label>
+          <label class="field-label">Country / culture <small>(so food, schools, buses… look familiar)</small><input name="region" value="${esc(s.region)}" placeholder="e.g. Denmark"></label>
         </fieldset>
+        <div class="row-actions save-row">
+          <button type="button" class="btn primary big" data-action="saveSettings">💾 Save settings</button>
+          <span class="hint">Changes are also saved automatically.</span>
+        </div>
       </form>
 
       <fieldset><legend>What the app has learned</legend>
@@ -949,8 +1113,8 @@ function saveSettingsFromForm(form) {
       else if (el.type === 'range') s[el.name] = parseFloat(el.value);
       else s[el.name] = el.value;
     }
-    s.personName = s.personName.trim();
-    s.aiKey = s.aiKey.trim();
+    s.personName = (s.personName || '').trim();
+    s.aiKey = (s.aiKey || '').trim();
   });
 }
 
@@ -1003,15 +1167,29 @@ document.addEventListener('click', async e => {
     case 'editToday':
       sug.clear();
       update(s => { s.draft = cloneSteps(s.today.steps); });
-      go('plan'); loadSuggestions(S().draft, { autoDraw: false }); break;
+      phase = 'edit'; go('plan'); loadSuggestions(S().draft, { autoDraw: false }); break;
     case 'resetToday':
       if (!confirm('Mark every step as not done?')) return;
       update(s => { s.today.steps.forEach(x => { x.done = false; }); });
       render(); break;
 
-    case 'generate': generate(el.dataset.mode, el); break;
     case 'dictate': dictate(); break;
-    case 'startTalk': go('plan'); dictate(); break;
+    case 'startTalk': phase = 'talk'; talkMode = 'replace'; go('plan'); dictate(); break;
+    case 'talkNext': talkNext(); break;
+    case 'skipQuestions': questions = []; makePlan(); break;
+    case 'makePlan': makePlan(); break;
+    case 'backToTalk': phase = 'talk'; renderPlan(); break;
+    case 'backToEdit': if (stopDictation) stopDictation(); phase = 'edit'; talkMode = 'replace'; renderPlan(); break;
+    case 'talkMore': phase = 'talk'; talkMode = 'append'; update(s => { s.draftText = ''; }); renderPlan(); break;
+    case 'newPlan':
+      if (st.draft.length && !confirm('Start a new plan? The current list will be cleared.')) return;
+      sug.clear(); update(s => { s.draft = []; s.draftText = ''; }); phase = 'talk'; talkMode = 'replace'; renderPlan(); break;
+    case 'answer': {
+      const q = questions?.[Number(el.dataset.q)];
+      if (q) { q.answer = q.answer === el.dataset.value ? '' : el.dataset.value; renderPlan(); }
+      break;
+    }
+    case 'photoStep': photoForStep(id); break;
     case 'pickSuggestion': pickSuggestion(id, Number(el.dataset.index)); break;
     case 'drawNew': { const s = draftStep(id); if (s) drawFor(s); break; }
     case 'openSuggest': {
@@ -1021,7 +1199,7 @@ document.addEventListener('click', async e => {
     }
     case 'addRoutine': {
       const r = st.routines.find(x => x.id === id);
-      if (r) { update(s => { s.draft.push(...cloneSteps(r.steps)); }); renderPlan(); loadSuggestions(S().draft, { autoDraw: false }); toast(`Added “${r.name}”.`); }
+      if (r) { update(s => { s.draft.push(...cloneSteps(r.steps)); }); phase = 'edit'; renderPlan(); loadSuggestions(S().draft, { autoDraw: false }); toast(`Added “${r.name}”.`); }
       break;
     }
     case 'changePic': changeStepPicture(id); break;
@@ -1059,7 +1237,7 @@ document.addEventListener('click', async e => {
       if (st.draft.length && !confirm('Replace the list you are editing in Plan?')) return;
       sug.clear();
       update(s => { s.draft = cloneSteps(r.steps); });
-      go('plan'); loadSuggestions(S().draft, { autoDraw: false });
+      phase = 'edit'; go('plan'); loadSuggestions(S().draft, { autoDraw: false });
       toast(`Editing “${r.name}”. Save it again with the same name to keep changes.`);
       break;
     }
@@ -1086,6 +1264,13 @@ document.addEventListener('click', async e => {
       a.download = `pictograms-backup-${todayKey()}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      break;
+    }
+    case 'saveSettings': {
+      const f = $('#settingsForm');
+      if (f) saveSettingsFromForm(f);
+      toast('Settings saved ✓');
+      renderSettings();
       break;
     }
     case 'forgetLearned':
@@ -1115,6 +1300,13 @@ document.addEventListener('input', e => {
     }
   } else if (el.id === 'planText') {
     update(st => { st.draftText = el.value; });
+    updateLivePreview();
+  } else if (el.classList.contains('q-other')) {
+    const q = questions?.[Number(el.dataset.q)];
+    if (q) {
+      q.answer = el.value;
+      document.querySelectorAll(`.chip[data-q="${el.dataset.q}"]`).forEach(c => c.classList.remove('on'));
+    }
   } else if (el.closest('#settingsForm')) {
     saveSettingsFromForm(el.closest('#settingsForm'));
   }
@@ -1140,13 +1332,15 @@ $('#nav').addEventListener('click', e => { const b = e.target.closest('[data-go]
 // Voices load asynchronously in some browsers.
 if ('speechSynthesis' in window) window.speechSynthesis.addEventListener?.('voiceschanged', () => { if (route === 'settings') renderSettings(); });
 
-// Offline support / install to home screen.
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+// Offline support / install to home screen (not inside Claude, where the page is framed).
+if ('serviceWorker' in navigator && location.protocol !== 'file:' && !window.claude) {
   navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW registration failed', err));
 }
 
 setupModeButton();
 render();
+// Inside Claude, AI works with the viewer's own Claude account: light it up when known.
+detectClaude().then(inClaude => { if (inClaude) render(); });
 
 // Exposed for tests and debugging.
 window.__app = { go, render, getState: S };

@@ -83,3 +83,10 @@ test('every built-in pictogram has a valid category and subcategory', async () =
     assert.ok(c.subs.some(s => s.id === p.subcategory), `bad subcategory for ${p.id}`);
   }
 });
+
+test('basic Danish dictation', () => {
+  const steps = parsePlan('havregrød, så skole klokken 8, madpakke og bagefter bus til svømning, bad og seng', BUILTIN_PICTOGRAMS);
+  assert.deepEqual(steps.map(s => s.pictoId), ['porridge', 'school', 'lunchbox', 'swimming', 'shower', 'bed']);
+  assert.equal(steps[1].time, '08:00');
+  assert.equal(extractTime('SFO kl. 13.30').time, '13:30');
+});

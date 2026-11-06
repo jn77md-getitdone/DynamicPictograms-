@@ -8,6 +8,7 @@
 // Works fully offline, without AI. Pure functions so they can be unit-tested.
 
 const STOP = new Set(('a an the to of for with and or in on at by my your our his her their ' +
+  'og i på til med en et den det de så skal vi du kl klokken spise ' +
   'some it is are be will we you i he she they then go going get have has do does time now ' +
   'next later after before up off out into from this that there please also just eat drink watch take ' +
   'put wear use see some').split(' '));
@@ -21,6 +22,9 @@ const LEAD_FILLERS = [
   'he is going to', 'she is going to', 'is going to', 'are going to', 'going to', 'gonna',
   'i will', "i'll", 'we', 'you', 'it is time to', "it's time to", 'time to', 'time for', 'have to',
   'need to', 'must', 'can', 'should', 'please',
+  // Danish
+  'og så', 'så skal vi', 'så skal du', 'så skal', 'så', 'og', 'bagefter', 'derefter', 'efter det', 'til sidst', 'først',
+  'vi skal', 'du skal', 'hun skal', 'han skal', 'skal', 'i dag', 'i morgen', 'om morgenen', 'om eftermiddagen', 'om aftenen',
 ];
 
 export function stem(word) {
@@ -109,10 +113,10 @@ export function extractTime(text) {
     time = named[1].toLowerCase() === 'midnight' ? '00:00' : '12:00';
     rest = rest.replace(named[0], ' ');
   } else {
-    const re = /\b(?:at|by|around|from|@)?\s*(\d{1,2})(?:[:.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?|o'?clock)?(?=\W|$)/ig;
+    const re = /\b(?:at|by|around|from|klokken|kl\.?|@)?\s*(\d{1,2})(?:[:.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?|o'?clock)?(?=\W|$)/ig;
     let m;
     while ((m = re.exec(rest))) {
-      const hasPrefix = /^(at|by|around|from|@)/i.test(m[0].trim());
+      const hasPrefix = /^(at|by|around|from|klokken|kl|@)/i.test(m[0].trim());
       const hasSuffix = !!m[3];
       const hasMinutes = m[2] !== undefined;
       if (!hasPrefix && !hasSuffix && !hasMinutes) continue; // a bare number like "2 books"
@@ -176,7 +180,7 @@ export function splitIntoChunks(text) {
 
 // Split on "then", commas, etc. and handle "A before B" / "A after B" inside each part.
 function splitPart(s) {
-  const parts = s.split(/,|\band then\b|\bthen\b|\bafter that\b|\bafterwards\b|\bnext\b|\bfollowed by\b|\bfinally\b|\blater\b/i)
+  const parts = s.split(/,|\band then\b|\bthen\b|\bafter that\b|\bafterwards\b|\bnext\b|\bfollowed by\b|\bfinally\b|\blater\b|\bog så\b|\bbagefter\b|\bderefter\b|\befter det\b|(?:^|\s)så(?=\s)/i)
     .map(x => x.trim()).filter(x => x && /[a-z0-9]/i.test(x));
   const out = [];
   for (const p of parts) {
@@ -226,7 +230,7 @@ export function parsePlan(text, pictograms) {
     if (!cleaned || !tokenize(cleaned).some(t => !STOP.has(t))) continue;
 
     // "bath and bed" -> two steps, but only if each half is a known activity
-    const halves = cleaned.split(/\s+(?:and|&|\+)\s+/);
+    const halves = cleaned.split(/\s+(?:and|og|&|\+)\s+/);
     if (halves.length > 1) {
       const matches = halves.map(h => matchChunk(h, index));
       const distinct = new Set(matches.map(m => m && m.picto.id));
