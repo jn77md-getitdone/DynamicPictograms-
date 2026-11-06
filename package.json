@@ -1,0 +1,11 @@
+{
+  "name": "dynamic-pictograms",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Visual schedules with pictograms that speak - for people who rely on pictograms, and the people who support them.",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node --test tests/*.test.mjs"
+  }
+}

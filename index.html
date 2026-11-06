@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Dynamic Pictograms</title>
+  <meta name="description" content="Make visual schedules with pictograms in seconds. Tap a pictogram to hear it, tick it off when it is done.">
+  <meta name="theme-color" content="#3f7fd0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Pictograms">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="title">My day</h1>
+    <button id="modeBtn" class="mode-btn" type="button"></button>
+  </header>
+
+  <main id="main" tabindex="-1"></main>
+
+  <nav id="nav" class="bottom-nav" aria-label="Main">
+    <button data-go="today"><span>🗓️</span>Today</button>
+    <button data-go="plan"><span>✏️</span>Plan</button>
+    <button data-go="routines"><span>📚</span>Routines</button>
+    <button data-go="pictos"><span>🖼️</span>Pictograms</button>
+    <button data-go="settings"><span>⚙️</span>Settings</button>
+  </nav>
+
+  <dialog id="dialog"></dialog>
+  <dialog id="picker"></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <noscript>This app needs JavaScript turned on.</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
