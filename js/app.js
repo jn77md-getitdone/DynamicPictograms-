@@ -5,6 +5,7 @@ import { getState, update, subscribe, exportBackup, importBackup, resetAll, toda
 import { speak, canSpeak, canListen, listen, getVoices, preferKeyboardDictation } from './speech.js';
 import { planWithAI, drawPictograms, askQuestions, aiAvailable, aiStatus, detectClaude, aiErrorMessage, canSendPhotos, photoForAI } from './ai.js';
 import { searchArasaac, ARASAAC_CREDIT } from './arasaac.js';
+import { SETUP_GROUPS, SETUP_ITEMS } from './setup.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -40,12 +41,20 @@ function fmtDate(key) {
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
-function toast(msg) {
+function toast(msg, { action = '', onAction = null } = {}) {
   const t = $('#toast');
   t.textContent = msg;
+  if (action) {
+    const b = document.createElement('button');
+    b.className = 'toast-action';
+    b.textContent = action;
+    b.onclick = () => { t.classList.remove('show', 'has-action'); onAction?.(); };
+    t.append(' ', b);
+  }
+  t.classList.toggle('has-action', !!action);
   t.classList.add('show');
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => t.classList.remove('show'), 2600);
+  toast.timer = setTimeout(() => t.classList.remove('show', 'has-action'), action ? 5000 : 2600);
 }
 
 function say(text) { speak(text, S().settings); }
@@ -98,118 +107,125 @@ function render() {
   $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.go === route));
   const name = st.settings.personName.trim();
   $('#title').textContent = route === 'today' ? (name ? `${name}'s day` : 'My day') : ({
-    plan: 'Make a plan', routines: 'Saved routines', pictos: 'Pictograms', settings: 'Settings',
+    plan: 'Make a plan', routines: 'Saved routines', pictos: 'Pictograms', settings: 'Settings', setup: 'Your own photos',
   }[route]);
   $('#modeBtn').innerHTML = st.childMode
     ? '<span class="hold-ring"></span>🔒<span class="sr">Hold to unlock helper mode</span>'
     : '👀 <span class="btn-text">Show to person</span>';
   $('#modeBtn').title = st.childMode ? 'Hold for 2 seconds to unlock' : 'Switch to the simple view for the person';
 
-  ({ today: renderToday, plan: renderPlan, routines: renderRoutines, pictos: renderPictos, settings: renderSettings }[route])();
-  if (route === 'today') {
-    const now = $('.card.now');
-    if (now && $('.card.done')) requestAnimationFrame(() => now.scrollIntoView({ block: 'center' }));
-  }
+  ({ today: renderToday, plan: renderPlan, routines: renderRoutines, pictos: renderPictos, settings: renderSettings, setup: renderSetup }[route])();
 }
 
 subscribe(() => { /* state saved; views re-render explicitly */ });
 
 // ---------- TODAY ----------
+// Layout that never moves around: NOW is always the big card at the top, then
+// NEXT, then the rest of the day. Finished steps leave the list and collect in a
+// small "Done" row at the bottom, so the active picture is always in the same place.
 function renderToday() {
   const st = S();
   const today = st.today;
   if (!today || !today.steps.length) {
+    const noPhotos = !st.customPictos.some(c => c.setupId || c.image?.type === 'photo');
     main.innerHTML = `
       <section class="empty">
         <div class="empty-emoji">🗓️</div>
         <h2>Nothing planned yet</h2>
         ${st.childMode ? '' : `<p>Say what will happen today and the app makes the pictograms.</p>
-        ${canListen() ? '<button class="mic-hero" data-action="startTalk" aria-label="Tell me about today">🎤</button><strong>Tell me about today</strong>' : ''}
-        <button class="btn ${canListen() ? '' : 'primary big'}" data-go="plan">✏️ ${canListen() ? 'Type it instead' : 'Make a plan'}</button>
-        ${st.routines.length ? '<button class="btn big" data-go="routines">📚 Use a saved routine</button>' : ''}`}
+        <button class="mic-hero" data-action="startTalk" aria-label="Tell me about today">🎤</button><strong>Tell me about today</strong>
+        ${st.routines.length ? '<button class="btn big" data-go="routines">📚 Use a saved routine</button>' : ''}
+        ${noPhotos ? `<div class="setup-invite">
+          <strong>First time?</strong> Take photos of the things you use every day (the car, the table, the bed…), so the pictograms show their real world.
+          <button class="btn primary" data-go="setup">📷 Set up with your own photos</button></div>` : ''}`}
       </section>`;
     return;
   }
 
   const steps = today.steps;
-  const doneCount = steps.filter(s => s.done).length;
-  const currentIdx = steps.findIndex(s => !s.done);
-  const nextIdx = currentIdx < 0 ? -1 : steps.findIndex((s, i) => i > currentIdx && !s.done);
-  const allDone = currentIdx < 0;
-  const nowNext = st.settings.view === 'nowNext';
-
-  const card = (s, i) => {
-    const state = s.done ? 'done' : i === currentIdx ? 'now' : i === nextIdx ? 'next' : 'later';
-    const badge = state === 'now' ? '<span class="badge now">Now</span>' : state === 'next' ? '<span class="badge next">Next</span>' : '';
-    return `
-      <li class="card ${state}" style="--cat:${catColor(s.category)}" data-id="${s.id}">
-        <button class="card-main" data-action="speak" data-id="${s.id}" aria-label="${esc(s.label)}. Tap to hear.">
-          <span class="pic">${imageHTML(s.image, s.label)}${s.done ? '<span class="tick">✓</span>' : ''}</span>
-          <span class="text">
-            ${badge}
-            <span class="label">${esc(s.label)}</span>
-            ${s.detail && s.detail.toLowerCase() !== s.label.toLowerCase() ? `<span class="detail">${esc(s.detail)}</span>` : ''}
-            ${s.time && st.settings.showTimes ? `<span class="time">🕒 ${esc(s.time)}</span>` : ''}
-          </span>
-        </button>
-        <button class="done-btn" data-action="toggleDone" data-id="${s.id}" aria-label="${s.done ? 'Not done yet' : 'Done'}">
-          ${s.done ? '↺' : '✓'}
-        </button>
-      </li>`;
-  };
-
-  let list;
-  if (nowNext && !allDone) {
-    const later = steps.map((s, i) => ({ s, i })).filter(({ s, i }) => !s.done && i !== currentIdx && i !== nextIdx);
-    list = `
-      <ol class="cards nownext">
-        ${card(steps[currentIdx], currentIdx)}
-        ${nextIdx >= 0 ? card(steps[nextIdx], nextIdx) : ''}
-      </ol>
-      ${later.length ? `<div class="later-strip" aria-label="Later">
-        <span class="later-title">Later</span>
-        ${later.map(({ s }) => `<button class="mini" style="--cat:${catColor(s.category)}" data-action="speak" data-id="${s.id}" aria-label="${esc(s.label)}">${imageHTML(s.image, s.label)}</button>`).join('')}
-      </div>` : ''}`;
-  } else {
-    list = `<ol class="cards">${steps.map(card).join('')}</ol>`;
-  }
+  const open = steps.filter(s => !s.done);
+  const done = steps.filter(s => s.done);
+  const [now, next, ...later] = open;
+  const nowNextOnly = st.settings.view === 'nowNext';
+  const showTime = s => s.time && st.settings.showTimes ? `<span class="time">🕒 ${esc(s.time)}</span>` : '';
+  const detail = s => s.detail && s.detail.toLowerCase() !== s.label.toLowerCase() ? `<span class="detail">${esc(s.detail)}</span>` : '';
 
   main.innerHTML = `
     <section class="today">
-      <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="${steps.length}" aria-valuenow="${doneCount}">
-        <div class="bar" style="width:${(doneCount / steps.length) * 100}%"></div>
-        <span>${doneCount} of ${steps.length} done</span>
+      <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="${steps.length}" aria-valuenow="${done.length}">
+        <div class="bar" style="width:${(done.length / steps.length) * 100}%"></div>
+        <span>${done.length} of ${steps.length} done</span>
       </div>
-      ${allDone ? `<div class="celebrate" data-action="speakText" data-text="All done! Well done!">🎉<strong>All done!</strong></div>` : ''}
-      ${list}
+
+      ${now ? `
+      <article class="now-card" style="--cat:${catColor(now.category)}" data-id="${now.id}">
+        <span class="badge now">Now</span>
+        <button class="now-main" data-action="speak" data-id="${now.id}" aria-label="${esc(now.label)}. Tap to hear.">
+          <span class="pic">${imageHTML(now.image, now.label)}</span>
+          <span class="label">${esc(now.label)}</span>
+          ${detail(now)}${showTime(now)}
+        </button>
+        <button class="now-done" data-action="toggleDone" data-id="${now.id}">✓ Done</button>
+      </article>` : `
+      <div class="celebrate" data-action="speakText" data-text="All done! Well done!">🎉<strong>All done!</strong></div>`}
+
+      ${next ? `
+      <article class="next-card" style="--cat:${catColor(next.category)}">
+        <button class="next-main" data-action="speak" data-id="${next.id}" aria-label="Next: ${esc(next.label)}. Tap to hear.">
+          <span class="pic">${imageHTML(next.image, next.label)}</span>
+          <span class="text"><span class="badge next">Next</span><span class="label">${esc(next.label)}</span>${detail(next)}${showTime(next)}</span>
+        </button>
+      </article>` : ''}
+
+      ${later.length ? (nowNextOnly ? `
+      <div class="later-strip" aria-label="Later">
+        <span class="later-title">Later</span>
+        ${later.map(s => `<button class="mini" style="--cat:${catColor(s.category)}" data-action="speak" data-id="${s.id}" aria-label="${esc(s.label)}">${imageHTML(s.image, s.label)}</button>`).join('')}
+      </div>` : `
+      <h3 class="section-title">Later</h3>
+      <ol class="later-list">
+        ${later.map(s => `<li><button class="later-row" style="--cat:${catColor(s.category)}" data-action="speak" data-id="${s.id}">
+          <span class="pic">${imageHTML(s.image, s.label)}</span><span class="label">${esc(s.label)}</span>${showTime(s)}</button></li>`).join('')}
+      </ol>`) : ''}
+
+      ${done.length ? `
+      <div class="done-row" aria-label="Done">
+        <span class="later-title">✓ Done</span>
+        ${done.map(s => `<button class="done-mini" style="--cat:${catColor(s.category)}" data-action="${st.childMode ? 'speak' : 'undoAsk'}" data-id="${s.id}" aria-label="${esc(s.label)}, done">
+          ${imageHTML(s.image, s.label)}<span class="check">✓</span></button>`).join('')}
+      </div>` : ''}
+
       ${st.childMode ? '' : `
         <div class="row-actions">
           <button class="btn" data-action="editToday">✏️ Change this plan</button>
           <button class="btn" data-action="resetToday">↺ Start over</button>
         </div>
-        <p class="hint">Made for ${esc(fmtDate(today.date))}. Tap a picture to hear it. Tap ✓ when it is done.</p>`}
+        <p class="hint">Made for ${esc(fmtDate(today.date))}. Tap a picture to hear it. Tap ✓ Done when it is finished. Tap a done picture to undo it.</p>`}
     </section>`;
 }
 
 function findTodayStep(id) { return S().today?.steps.find(s => s.id === id); }
 
+function setDone(id, value) {
+  update(st => { const s = st.today.steps.find(x => x.id === id); if (s) s.done = value; });
+}
+
 function toggleDone(id) {
-  let spoken = '';
-  update(st => {
-    const s = st.today.steps.find(x => x.id === id);
-    if (!s) return;
-    s.done = !s.done;
-    if (s.done) {
-      const next = st.today.steps.find(x => !x.done);
-      spoken = next ? `Well done! Next: ${next.label}.` : 'All done! Well done!';
-    }
-  });
-  if (spoken && S().settings.speakOnDone) say(spoken);
-  render();
-  if (spoken) {
-    const now = $('.card.now');
-    if (now) now.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
+  const card = $(`.now-card[data-id="${id}"]`);
+  const finish = () => {
+    setDone(id, true);
+    const next = S().today.steps.find(x => !x.done);
+    if (S().settings.speakOnDone) say(next ? `Well done! Next: ${next.label}.` : 'All done! Well done!');
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    $('.now-card')?.classList.add('arrive');
+    toast('Well done! ✓', { action: 'Undo', onAction: () => { setDone(id, false); render(); } });
+  };
+  // A short "done" moment on the card itself, then the next one takes its place.
+  if (card && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    card.classList.add('finishing');
+    setTimeout(finish, 450);
+  } else finish();
 }
 
 // ---------- PLAN ----------
@@ -696,7 +712,11 @@ function renderPictos(filterCat = renderPictos.cat || null) {
   const shown = filterCat ? lib.filter(p => p.category === filterCat) : lib;
   main.innerHTML = `
     <section class="pictos">
-      <div class="row-actions"><button class="btn primary" data-action="newPicto">➕ New pictogram</button></div>
+      <div class="setup-invite">
+        <strong>Use your own photos</strong> of the car, the table, the bed, school and the people in their life. The pictograms then show their real world.
+        <button class="btn primary" data-go="setup">📷 Set up with your own photos</button>
+      </div>
+      <div class="row-actions"><button class="btn" data-action="newPicto">➕ New pictogram</button></div>
       <h2>My pictograms</h2>
       ${custom.length ? `<div class="grid">${custom.map(p => tile(p, 'editPicto')).join('')}</div>`
         : '<p class="hint">Pictograms you make or change appear here and are used first when you make a plan. Tip: take a photo of the real thing (their own toothbrush, their school bus, Grandma).</p>'}
@@ -1053,6 +1073,172 @@ async function addStep() {
   $(`.edit-row[data-id="${step.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+// ---------- SETUP: your own photos ----------
+// Photograph the things and places that come up every day. Each photo becomes
+// that pictogram from then on, so plans show the person's own world.
+
+function setupPicto(item) {
+  return S().customPictos.find(c => c.setupId === item.id)
+    || (item.baseId && S().customPictos.find(c => c.baseId === item.baseId && (c.image?.type === 'photo' || c.image?.source === 'photo-ai')));
+}
+
+function setupLabel(item) {
+  const base = item.baseId && BUILTIN_PICTOGRAMS.find(b => b.id === item.baseId);
+  return item.label || base?.label || item.id;
+}
+
+function renderSetup() {
+  const done = SETUP_ITEMS.filter(i => setupPicto(i)).length;
+  const own = S().customPictos.filter(c => c.setupId?.startsWith('own-'));
+  const cartoon = canSendPhotos(S().settings);
+  const itemHTML = (item, picto) => {
+    const base = item.baseId && BUILTIN_PICTOGRAMS.find(b => b.id === item.baseId);
+    const image = picto ? picto.image : (base ? base.image : { type: 'emoji', value: item.emoji || '⭐' });
+    const category = picto?.category || item.category || base?.category || 'other';
+    return `
+      <li class="setup-item ${picto ? 'has-photo' : ''}" style="--cat:${catColor(category)}">
+        <span class="pic">${imageHTML(image, setupLabel(item))}${picto ? '<span class="check">✓</span>' : ''}</span>
+        <span class="setup-text">
+          <span class="setup-label">${esc(picto?.label || setupLabel(item))}</span>
+          <span class="setup-ask">${picto ? 'Your photo is used' : `Photo of ${esc(item.ask)}`}</span>
+        </span>
+        <span class="setup-buttons">
+          <label class="btn primary small" aria-label="Take a photo">📷<input type="file" accept="image/*" capture="environment" data-setup-photo="${item.id}" hidden></label>
+          <label class="btn small" aria-label="Choose a photo from the device">🖼️<input type="file" accept="image/*" data-setup-photo="${item.id}" hidden></label>
+          ${picto ? `<button class="btn small danger-text" data-action="setupRemove" data-id="${item.id}" aria-label="Remove photo">✕</button>` : ''}
+        </span>
+      </li>`;
+  };
+  main.innerHTML = `
+    <section class="setup">
+      <div class="setup-intro">
+        <p><strong>Take photos of the things and places you use every day.</strong> Each photo becomes that pictogram from then on, so the plans show the person’s own world: your car, your table, their bed.${cartoon ? ' You can use the photo as it is, or let the AI turn it into a simple <strong>cartoon pictogram</strong>.' : ''}</p>
+        <p class="hint">Skip anything you don’t use. You can come back here any time from Pictograms.</p>
+        <div class="progress small" role="progressbar" aria-valuemin="0" aria-valuemax="${SETUP_ITEMS.length}" aria-valuenow="${done}">
+          <div class="bar" style="width:${(done / SETUP_ITEMS.length) * 100}%"></div><span>${done} of ${SETUP_ITEMS.length} photographed</span>
+        </div>
+      </div>
+      ${SETUP_GROUPS.map(g => `
+        <h2 class="setup-group">${esc(g.title)}</h2>
+        <ol class="setup-list">${g.items.map(item => itemHTML(item, setupPicto(item))).join('')}</ol>`).join('')}
+      <h2 class="setup-group">Something else</h2>
+      <ol class="setup-list">
+        ${own.map(c => itemHTML({ id: c.setupId, label: c.label, ask: c.label }, c)).join('')}
+        <li class="setup-item add">
+          <span class="pic"><span class="emoji">➕</span></span>
+          <span class="setup-text"><input id="setupNewLabel" placeholder="Name, e.g. Horse club, Grandma’s house" aria-label="Name of the new pictogram"></span>
+          <span class="setup-buttons">
+            <label class="btn primary small" aria-label="Take a photo">📷<input type="file" accept="image/*" capture="environment" data-setup-photo="__new" hidden></label>
+            <label class="btn small" aria-label="Choose a photo from the device">🖼️<input type="file" accept="image/*" data-setup-photo="__new" hidden></label>
+          </span>
+        </li>
+      </ol>
+      <div class="row-actions"><button class="btn primary big" data-go="plan">Done, make a plan →</button></div>
+    </section>`;
+}
+
+// Photo review: use it as it is, or turn it into a cartoon pictogram.
+function openPhotoSheet(file, context) {
+  return new Promise(async resolve => {
+    const dlg = $('#dialog');
+    let photo, large;
+    try {
+      photo = await resizeImage(file);
+      large = await resizeImage(file, 900, false);
+    } catch { toast('Could not read that picture.'); return resolve(null); }
+    const cartoonOk = canSendPhotos(S().settings);
+    let cartoon = { results: null, loading: false, error: '' };
+    const draw = () => {
+      dlg.innerHTML = `
+        <div class="sheet">
+          <header class="sheet-head"><h2>${esc(context.label)}</h2><button class="icon-btn" data-close aria-label="Close">✕</button></header>
+          <div class="photo-preview"><img src="${photo}" alt="Your photo"></div>
+          <div class="row-actions">
+            <button class="btn primary big" data-pick="photo">✓ Use this photo</button>
+            ${cartoonOk ? `<button class="btn ai big" data-cartoon ${cartoon.loading ? 'disabled' : ''}>${cartoon.loading ? '<span class="spinner"></span> Drawing…' : '✨ Make cartoon version'}</button>` : ''}
+          </div>
+          ${cartoon.loading ? '<p class="hint">Drawing a cartoon of your photo. This can take up to a minute.</p>' : ''}
+          ${cartoon.error ? `<p class="hint error">${esc(cartoon.error)}</p>` : ''}
+          ${cartoon.results ? `<div class="grid">${cartoon.results.map((img, i) => `
+            <button class="tile" data-pick="${i}"><span class="pic">${imageHTML(img, 'Cartoon version')}</span><span class="tile-label">Use this</span></button>`).join('')}</div>` : ''}
+        </div>`;
+    };
+    const done = val => { dlg.onclick = null; dlg.onclose = null; dlg.close(); resolve(val); };
+    dlg.onclick = e => {
+      if (e.target.closest('[data-close]')) return done(null);
+      const pick = e.target.closest('[data-pick]');
+      if (pick) return done(pick.dataset.pick === 'photo' ? { type: 'photo', value: photo } : cartoon.results[Number(pick.dataset.pick)]);
+      if (e.target.closest('[data-cartoon]') && !cartoon.loading) {
+        cartoon = { results: null, loading: true, error: '' }; draw();
+        photoForAI(large)
+          .then(img => drawPictograms({ label: context.label, detail: '', speech: context.speech || '' }, S().settings, 2, img))
+          .then(r => { cartoon.results = r; if (!r.length) cartoon.error = 'No cartoon came back. Try again or use the photo.'; })
+          .catch(err => { console.error(err); cartoon.error = aiErrorMessage(err); })
+          .finally(() => { cartoon.loading = false; if (dlg.open) draw(); });
+      }
+    };
+    dlg.onclose = () => done(null);
+    draw();
+    dlg.showModal();
+  });
+}
+
+async function handleSetupPhoto(input) {
+  const id = input.dataset.setupPhoto;
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  let item = SETUP_ITEMS.find(i => i.id === id) || (() => {
+    const c = S().customPictos.find(x => x.setupId === id);
+    return c ? { id, label: c.label, category: c.category, keywords: c.keywords, speech: c.speech } : null;
+  })();
+  if (id === '__new') {
+    const label = $('#setupNewLabel')?.value.trim();
+    if (!label) { toast('Write a name first, e.g. “Horse club”.'); $('#setupNewLabel')?.focus(); return; }
+    item = { id: 'own-' + newId('s'), label, ask: label, category: 'other', speech: label, keywords: [label.toLowerCase()] };
+  }
+  if (!item) return;
+  const image = await openPhotoSheet(file, { label: setupLabel(item), speech: item.speech });
+  if (!image) return;
+  saveSetupPhoto(item, image);
+  toast(`Saved. “${setupLabel(item)}” now uses your picture.`);
+  renderSetup();
+}
+
+function saveSetupPhoto(item, image) {
+  const base = item.baseId && BUILTIN_PICTOGRAMS.find(b => b.id === item.baseId);
+  update(st => {
+    let c = st.customPictos.find(x => x.setupId === item.id) || (base && st.customPictos.find(x => x.baseId === base.id));
+    if (!c) { c = { id: 'c' + newId('p'), custom: true }; st.customPictos.unshift(c); }
+    Object.assign(c, {
+      setupId: item.id,
+      baseId: base ? base.id : null,
+      label: item.label || base.label,
+      speech: item.speech || base?.speech || item.label,
+      category: item.category || base?.category || 'other',
+      subcategory: item.subcategory || base?.subcategory || '',
+      keywords: item.keywords || [...(base?.keywords || [])],
+      image,
+    });
+    // The family's own photo wins from now on: make it the learned picture straight away.
+    const key = activityKey(c.label);
+    delete st.memory.picks[key];
+    recordPick(st.memory, key, image);
+    recordPick(st.memory, key, image);
+  });
+}
+
+function removeSetupPhoto(id) {
+  update(st => {
+    const c = st.customPictos.find(x => x.setupId === id)
+      || st.customPictos.find(x => x.baseId === SETUP_ITEMS.find(i => i.id === id)?.baseId);
+    if (!c) return;
+    delete st.memory.picks[activityKey(c.label)];
+    st.customPictos = st.customPictos.filter(x => x !== c);
+  });
+  renderSetup();
+}
+
 // ---------- SETTINGS ----------
 function renderSettings() {
   const s = S().settings;
@@ -1115,6 +1301,11 @@ function renderSettings() {
           <span class="hint">Changes are also saved automatically.</span>
         </div>
       </form>
+
+      <fieldset><legend>Your own photos</legend>
+        <p class="hint">Photograph the car, the table, the bed, school and the people in their life, so the pictograms show their real world.</p>
+        <button class="btn primary" data-go="setup">📷 Set up with your own photos</button>
+      </fieldset>
 
       <fieldset><legend>What the app has learned</legend>
         ${(() => { const m = memoryStats(S().memory); return `<p>Knows the favourite picture for <strong>${m.activities}</strong> activities, <strong>${m.settled}</strong> of them are settled (no new drawings needed). <strong>${m.drawings}</strong> drawings are saved for reuse.</p>`; })()}
@@ -1187,12 +1378,18 @@ document.addEventListener('click', async e => {
     case 'speak': {
       const s = findTodayStep(id);
       if (s && st.settings.speakOnTap) say(s.speech || s.label);
-      el.closest('.card, .mini')?.classList.add('pulse');
-      setTimeout(() => el.closest('.card, .mini')?.classList.remove('pulse'), 600);
+      const tapped = el.closest('.now-card, .next-card, .later-row, .mini, .done-mini');
+      tapped?.classList.add('pulse');
+      setTimeout(() => tapped?.classList.remove('pulse'), 600);
       break;
     }
     case 'speakText': say(el.dataset.text); break;
     case 'toggleDone': toggleDone(id); break;
+    case 'undoAsk': {
+      const s = findTodayStep(id);
+      if (s && await askConfirm(`Mark “${s.label}” as not done?`)) { setDone(id, false); render(); }
+      break;
+    }
     case 'editToday':
       sug.clear();
       update(s => { s.draft = cloneSteps(s.today.steps); });
@@ -1283,6 +1480,9 @@ document.addEventListener('click', async e => {
     }
 
     case 'newPicto': openPictoEditor(null); break;
+    case 'setupRemove':
+      if (await askConfirm('Remove this photo? The library picture is used again.', 'Remove')) removeSetupPhoto(id);
+      break;
     case 'editPicto': openPictoEditor(pictoById(id)); break;
     case 'pictoCat': renderPictos(el.dataset.cat || null); break;
 
@@ -1347,6 +1547,7 @@ document.addEventListener('change', async e => {
     saveSettingsFromForm(el.closest('#settingsForm'));
     if (el.name === 'speechLang') { update(st => { st.settings.voiceURI = ''; }); renderSettings(); }
   }
+  if (el.matches?.('[data-setup-photo]')) { handleSetupPhoto(el); return; }
   if (el.id === 'importFile' && el.files[0]) {
     try {
       importBackup(await el.files[0].text());

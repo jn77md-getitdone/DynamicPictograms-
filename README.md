@@ -37,6 +37,14 @@ Claude draws pictograms as vector graphics (SVG), not photos or paintings. That 
 - **Inside Claude (easiest):** the app is published as a private Claude artifact. There, the AI (questions, plans, drawings, photo → cartoon) runs on your own Claude login, with no API key. Claude asks once for permission. Inside Claude the browser blocks the microphone, so you dictate with the 🎤 key on the iPad/iPhone keyboard. Rebuild the artifact page with `node scripts/build-artifact.mjs`.
 - **As a normal web page / home-screen app** (GitHub Pages or any HTTPS host): works offline, and uses built-in dictation where the browser supports it. The AI needs an Anthropic API key in Settings.
 
+## Setup: your own photos
+
+**Pictograms → 📷 Set up with your own photos** (offered on first use) goes through about 40 everyday things and places: the car, the dining table, their bed, the toilet, a typical breakfast, the lunch box, school, the playground, Mum, Dad, Grandma, their toothbrush, shoes, school bag… For each one you take a photo, or skip it. You can use the photo as it is, or let the AI turn it into a cartoon pictogram. From then on that picture is used everywhere: in the live preview, in new plans and in suggestions. You can also add your own, such as "Horse club".
+
+## The day view
+
+The **NOW** card is always the big card at the top. Below it are **Next** and the rest of the day (**Later**). Tapping **✓ Done** moves the step to a small **✓ Done** row at the bottom, the next step takes its place, and an **Undo** button appears for a few seconds. In helper mode, tap a done picture to mark it as not done.
+
 ## How a plan is made
 
 1. **Talk.** Say (or type) what will happen. Pictograms appear live as you speak ("I hear: …").

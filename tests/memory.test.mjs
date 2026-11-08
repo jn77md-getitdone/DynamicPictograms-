@@ -45,3 +45,14 @@ test('SVG sanitiser removes anything active', () => {
   assert.ok(out.includes('<circle'));
   assert.equal(sanitizeSvg('no svg here'), null);
 });
+
+test('every setup item links to a real library pictogram or has its own keywords', async () => {
+  const { SETUP_ITEMS } = await import('../js/setup.js');
+  const { BUILTIN_PICTOGRAMS } = await import('../js/library.js');
+  const ids = new Set(BUILTIN_PICTOGRAMS.map(p => p.id));
+  for (const i of SETUP_ITEMS) {
+    if (i.baseId) assert.ok(ids.has(i.baseId), `unknown baseId ${i.baseId}`);
+    else assert.ok(i.label && i.keywords?.length, `item ${i.id} needs label and keywords`);
+    assert.ok(i.ask, `item ${i.id} needs a prompt`);
+  }
+});
