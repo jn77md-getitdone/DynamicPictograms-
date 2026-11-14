@@ -1,6 +1,6 @@
 # Brain-teaser game: puzzle engine plan
 
-Status: planning, no code yet.
+Status: planning, no code yet. The game will live in a **new repository**; this plan moves there.
 
 ## Goals
 1. Train the cognitive domains measured by WISC-style tests (fluid reasoning, visual spatial,
@@ -35,6 +35,15 @@ Adults first, children second. The engine is shared; profiles change only presen
   read-aloud/pictogram instructions (can share assets with DynamicPictograms), no exam mode by default.
 - **Privacy:** no child accounts at first; progress stored locally (GDPR, minors). Optional parent view later.
 
+## Languages: Danish and English from day one
+- The engine is language-neutral: PuzzleSpecs contain no text, only tokens and rule IDs.
+- All UI text lives in translation files (`da.json`, `en.json`); no hard-coded strings.
+- Explanations are built from rule metadata with templates per language
+  (e.g. rule `progression(size,+1)` -> "Størrelsen vokser ét trin pr. felt" / "Size grows one step per cell").
+- Language is chosen per profile; the default follows the device language.
+- Verbal tasks need a separate word bank per language, calibrated per language (not translations).
+- Read-aloud (child mode) uses the browser's speech synthesis for the selected language.
+
 ## Modes
 - **Training:** adaptive, immediate feedback plus an explanation of the rule.
 - **Exam simulation:** configurable item count, timer and option count (preset for Mensa DK once
@@ -43,13 +52,13 @@ Adults first, children second. The engine is shared; profiles change only presen
 
 ## Roadmap
 1. Engine core + matrix generator (extended rules) + validator + property tests.
-2. Explanations + simple training UI (Danish first, i18n-ready).
+2. Explanations + simple training UI (Danish and English).
 3. Exam-simulation mode + adaptive difficulty up to the top end.
 4. Series completion, odd-one-out, figure analogies.
 5. Child profile: theme, age bands, child-friendly UI.
 6. WISC domains: digit/picture span, symbol search, coding, block patterns, mental rotation.
-7. Verbal content (Danish word bank), accessibility, mobile.
+7. Verbal content (separate Danish and English word banks), accessibility, mobile.
 
 ## Open questions
 - Confirm the Mensa Danmark test format (items, time, options).
-- Same repo as DynamicPictograms (current default), or a new repo?
+- Name of the new repository (to attach it to the session).
