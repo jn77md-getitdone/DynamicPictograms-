@@ -26,6 +26,29 @@ seed + task type + difficulty -> Generator -> PuzzleSpec (pure JSON) -> Validato
   movement/rotation, counting.
 - Difficulty = number of rules x attributes x layers x distractor closeness x option count (6-8).
 
+## Pattern tutorials (learn what to look for)
+Every rule in the engine is also a lesson, so tutorials are generated from the same engine.
+- **Pattern library:** one lesson per rule type (constant, progression, arithmetic, distribute-three,
+  overlay OR/AND/XOR/subtract, movement/rotation, counting, layers).
+- **Lesson flow:** short animated demo -> guided puzzles with only that rule -> mixed practice -> combined rules.
+- **Hint ladder in training:** 1) "Look along the rows" 2) "Focus on size" 3) show the rule 4) show the answer.
+  Using hints lowers the score for that item.
+- **Strategy lessons:** systematic scanning (one attribute at a time, rows vs columns),
+  eliminating options, pacing and skipping under time pressure.
+- **Recommendations:** tracks which rule types the player misses and suggests the matching lesson.
+- Child version: simpler language, pictures, fewer rule types per lesson.
+
+## Vocabulary training
+Language-specific, so built as a content module next to the engine.
+- **Data:** open lexical databases, WordNet (English) and DanNet (Danish); both have open licences
+  (check terms before shipping). Word frequency lists set difficulty. Child word lists per age band.
+- **Generated task types:** synonym choice, antonym choice, definition -> word, word in a sentence,
+  odd one out (category), verbal analogies, "how are X and Y alike?".
+- **Difficulty:** word rarity + how close the distractors are in meaning.
+- **Spaced repetition:** missed words come back on a schedule (FSRS/SM-2 style).
+- Content QA: generated items are checked by script and reviewed by a person; any AI-assisted
+  creation happens offline, never live in the app.
+
 ## Audiences (one engine, several profiles)
 Adults first, children second. The engine is shared; profiles change only presentation and parameters.
 - **Visual themes:** a PuzzleSpec uses abstract tokens (shape A, colour 2, ...); the theme maps them to
@@ -52,12 +75,13 @@ Adults first, children second. The engine is shared; profiles change only presen
 
 ## Roadmap
 1. Engine core + matrix generator (extended rules) + validator + property tests.
-2. Explanations + simple training UI (Danish and English).
+2. Explanations, hint ladder, pattern tutorials + simple training UI (Danish and English).
 3. Exam-simulation mode + adaptive difficulty up to the top end.
 4. Series completion, odd-one-out, figure analogies.
 5. Child profile: theme, age bands, child-friendly UI.
 6. WISC domains: digit/picture span, symbol search, coding, block patterns, mental rotation.
-7. Verbal content (separate Danish and English word banks), accessibility, mobile.
+7. Vocabulary module (DanNet/WordNet, spaced repetition), verbal reasoning tasks.
+8. Accessibility, mobile polish.
 
 ## Open questions
 - Confirm the Mensa Danmark test format (items, time, options).
